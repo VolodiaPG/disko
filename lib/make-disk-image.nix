@@ -25,6 +25,14 @@
       }
     ];
   };
+  hostDependencies = with hostPkgs; [
+    bash
+    coreutils
+    gnused
+    nix
+    findutils
+  ];
+
   dependencies = with pkgs;
     [
       bash
@@ -85,7 +93,7 @@
 
   runInLinuxVMNoKVM = drv: lib.overrideDerivation (vmTools.runInLinuxVM drv) (_: {requiredSystemFeatures = [];});
 in {
-  pure = runInLinuxVMNoKVM (hostPkgs.runCommand name
+  pure = runInLinuxVMNoKVM (pkgs.runCommand name
     {
       buildInputs = dependencies;
       inherit preVM postVM QEMU_OPTS;
@@ -95,11 +103,11 @@ in {
   impure =
     diskoLib.writeCheckedBash {
       inherit checked;
-      pkgs = hostPkgs;
+      pkgs = pkgs;
     }
     name ''
       set -efu
-      export PATH=${lib.makeBinPath dependencies}
+      export PATH=${hostPkgs.lib.makeBinPath hostDependencies}
       showUsage() {
       cat <<\USAGE
       Usage: $script [options]
@@ -170,7 +178,7 @@ in {
           pkgs = hostPkgs;
         } "postVM.sh"
         postVM}
-      export origBuilder=${pkgs.writeScript "disko-builder" ''
+      export origBuilder=${hostPkgs.writeScript "disko-builder" ''
         set -eu
         export PATH=${lib.makeBinPath dependencies}
         for src in /tmp/xchg/copy_before_disko/*; do
@@ -196,7 +204,7 @@ in {
       QEMU_OPTS+=" -m $build_memory"
       export QEMU_OPTS
 
-      ${hostPkgs.bash}/bin/sh -e ${vmTools.vmRunCommand vmTools.qemuCommandLinux}
+      ${hostPkgs.bash}/bin/sh -e ${hostPkgs.vmTools.vmRunCommand hostPkgs.vmTools.qemuCommand}
       cd /
     '';
 }
