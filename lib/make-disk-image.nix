@@ -8,7 +8,7 @@
   extraPostVM ? nixosConfig.config.disko.extraPostVM,
   checked ? false,
 }: let
-  vmTools = hostPkgs.vmTools.override {
+  vmTools = pkgs.vmTools.override {
     rootModules = ["9p" "9pnet_virtio" "virtio_pci" "virtio_blk"] ++ nixosConfig.config.disko.extraRootModules;
     kernel =
       pkgs.aggregateModules
@@ -47,7 +47,7 @@
     ${extraPostVM}
   '';
 
-  closureInfo = hostPkgs.closureInfo {
+  closureInfo = pkgs.closureInfo {
     rootPaths = [systemToInstall.config.system.build.toplevel];
   };
   partitioner = ''
@@ -83,7 +83,7 @@
 
   QEMU_OPTS = "-drive if=pflash,format=raw,unit=0,readonly=on,file=${pkgs.OVMF.firmware}" + " " + (lib.concatMapStringsSep " " (disk: "-drive file=${disk.name}.raw,if=virtio,cache=unsafe,werror=report,format=raw") (lib.attrValues nixosConfig.config.disko.devices.disk));
 in {
-  pure = vmTools.runInLinuxVM (hostPkgs.runCommand name
+  pure = vmTools.runInLinuxVM (pkgs.runCommand name
     {
       buildInputs = dependencies;
       inherit preVM postVM QEMU_OPTS;
@@ -93,7 +93,7 @@ in {
   impure =
     diskoLib.writeCheckedBash {
       inherit checked;
-      pkgs = hostPkgs;
+      pkgs = pkgs;
     }
     name ''
       set -efu
@@ -157,7 +157,7 @@ in {
 
       export preVM=${diskoLib.writeCheckedBash {
           inherit checked;
-          pkgs = hostPkgs;
+          pkgs = pkgs;
         } "preVM.sh" ''
           set -efu
           mv copy_before_disko copy_after_disko xchg/
@@ -168,7 +168,7 @@ in {
           pkgs = hostPkgs;
         } "postVM.sh"
         postVM}
-      export origBuilder=${hostPkgs.writeScript "disko-builder" ''
+      export origBuilder=${pkgs.writeScript "disko-builder" ''
         set -eu
         export PATH=${lib.makeBinPath dependencies}
         for src in /tmp/xchg/copy_before_disko/*; do
