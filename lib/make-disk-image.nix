@@ -95,7 +95,7 @@ in {
   impure =
     diskoLib.writeCheckedBash {
       inherit checked;
-      pkgs = pkgs;
+      pkgs = hostPkgs;
     }
     name ''
       set -efu
@@ -159,7 +159,7 @@ in {
 
       export preVM=${diskoLib.writeCheckedBash {
           inherit checked;
-          pkgs = pkgs;
+          pkgs = hostPkgs;
         } "preVM.sh" ''
           set -efu
           mv copy_before_disko copy_after_disko xchg/
