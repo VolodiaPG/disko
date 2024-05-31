@@ -1,5 +1,10 @@
-{ config, lib, pkgs, extendModules, ... }@args:
-let
+{
+  config,
+  lib,
+  pkgs,
+  extendModules,
+  ...
+} @ args: let
   diskoLib = import ./lib {
     inherit lib;
     rootMountPoint = config.disko.rootMountPoint;
@@ -7,15 +12,14 @@ let
     eval-config = import (pkgs.path + "/nixos/lib/eval-config.nix");
   };
   cfg = config.disko;
-in
-{
+in {
   options.disko = {
     extraRootModules = lib.mkOption {
       type = lib.types.listOf lib.types.str;
       description = ''
         extra modules to pass to the vmTools.runCommand invocation in the make-disk-image.nix builder
       '';
-      default = [ ];
+      default = [];
     };
     extraPostVM = lib.mkOption {
       type = lib.types.str;
@@ -37,7 +41,7 @@ in
     };
     devices = lib.mkOption {
       type = diskoLib.toplevel;
-      default = { };
+      default = {};
       description = "The devices to set up";
     };
     extraDependencies = lib.mkOption {
@@ -45,7 +49,14 @@ in
       description = ''
         list of extra packages to make available in the make-disk-image.nix VM builder, an example might be f2fs-tools
       '';
-      default = [ ];
+      default = [];
+    };
+    hostPkgs = lib.mkOption {
+      type = lib.types.attrs;
+      description = ''
+        list of extra packages to make available in the make-disk-image.nix VM builder, an example might be f2fs-tools
+      '';
+      default = pkgs;
     };
     rootMountPoint = lib.mkOption {
       type = lib.types.str;
@@ -93,40 +104,43 @@ in
           Extra NixOS config for your test. Can be used to specify a different luks key for tests.
           A dummy key is in /tmp/secret.key
         '';
-        default = { };
+        default = {};
       };
     };
   };
-  config = lib.mkIf (cfg.devices.disk != { }) {
-    system.build = (cfg.devices._scripts { inherit pkgs; checked = cfg.checkScripts; }) // {
+  config = lib.mkIf (cfg.devices.disk != {}) {
+    system.build =
+      (cfg.devices._scripts {
+        inherit pkgs;
+        checked = cfg.checkScripts;
+      })
+      // {
+        # we keep these old outputs for compatibility
+        disko = builtins.trace "the .disko output is deprecated, please use .diskoScript instead" (cfg.devices._scripts {inherit pkgs;}).diskoScript;
+        diskoNoDeps = builtins.trace "the .diskoNoDeps output is deprecated, please use .diskoScriptNoDeps instead" (cfg.devices._scripts {inherit pkgs;}).diskoScriptNoDeps;
 
-      # we keep these old outputs for compatibility
-      disko = builtins.trace "the .disko output is deprecated, please use .diskoScript instead" (cfg.devices._scripts { inherit pkgs; }).diskoScript;
-      diskoNoDeps = builtins.trace "the .diskoNoDeps output is deprecated, please use .diskoScriptNoDeps instead" (cfg.devices._scripts { inherit pkgs; }).diskoScriptNoDeps;
+        diskoImages = diskoLib.makeDiskImages {
+          nixosConfig = args;
+        };
+        diskoImagesScript = diskoLib.makeDiskImagesScript {
+          nixosConfig = args;
+        };
 
-      diskoImages = diskoLib.makeDiskImages {
-        nixosConfig = args;
+        installTest = diskoLib.testLib.makeDiskoTest {
+          inherit extendModules pkgs;
+          name = "${config.networking.hostName}-disko";
+          disko-config = builtins.removeAttrs config ["_module"];
+          testMode = "direct";
+          efi = cfg.tests.efi;
+          extraSystemConfig = cfg.tests.extraConfig;
+          extraTestScript = cfg.tests.extraChecks;
+        };
       };
-      diskoImagesScript = diskoLib.makeDiskImagesScript {
-        nixosConfig = args;
-      };
-
-      installTest = diskoLib.testLib.makeDiskoTest {
-        inherit extendModules pkgs;
-        name = "${config.networking.hostName}-disko";
-        disko-config = builtins.removeAttrs config [ "_module" ];
-        testMode = "direct";
-        efi = cfg.tests.efi;
-        extraSystemConfig = cfg.tests.extraConfig;
-        extraTestScript = cfg.tests.extraChecks;
-      };
-    };
-
 
     # we need to specify the keys here, so we don't get an infinite recursion error
     # Remember to add config keys here if they are added to types
-    fileSystems = lib.mkIf cfg.enableConfig cfg.devices._config.fileSystems or { };
-    boot = lib.mkIf cfg.enableConfig cfg.devices._config.boot or { };
-    swapDevices = lib.mkIf cfg.enableConfig cfg.devices._config.swapDevices or [ ];
+    fileSystems = lib.mkIf cfg.enableConfig cfg.devices._config.fileSystems or {};
+    boot = lib.mkIf cfg.enableConfig cfg.devices._config.boot or {};
+    swapDevices = lib.mkIf cfg.enableConfig cfg.devices._config.swapDevices or [];
   };
 }
