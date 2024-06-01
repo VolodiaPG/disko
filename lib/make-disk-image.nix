@@ -8,7 +8,7 @@
   extraPostVM ? nixosConfig.config.disko.extraPostVM,
   checked ? false,
 }: let
-  vmTools = pkgs.vmTools.override {
+  vmTools = hostPkgs.vmTools.override {
     rootModules = ["9p" "9pnet_virtio" "virtio_pci" "virtio_blk"] ++ nixosConfig.config.disko.extraRootModules;
     kernel =
       pkgs.aggregateModules
@@ -108,7 +108,7 @@
 
     # We copy files with cp because `nix copy` seems to have a large memory leak
     mkdir -p ${systemToInstall.config.disko.rootMountPoint}/nix/store
-    xargs cp --recursive --target ${systemToInstall.config.disko.rootMountPoint}/nix/store < ${closureInfo}/store-paths
+    #xargs cp --recursive --target ${systemToInstall.config.disko.rootMountPoint}/nix/store < ${closureInfo}/store-paths
     ${pkgs.rsync}/bin/rsync -avhW --no-compress ${closureInfo}/store-paths/ ${systemToInstall.config.disko.rootMountPoint}/nix/store
 
     ${systemToInstall.config.system.build.nixos-install}/bin/nixos-install --root ${systemToInstall.config.disko.rootMountPoint} --system ${systemToInstall.config.system.build.toplevel} --keep-going --no-channel-copy -v --no-root-password --option binary-caches ""
@@ -117,9 +117,9 @@
 
   QEMU_OPTS = "-drive if=pflash,format=raw,unit=0,readonly=on,file=${pkgs.OVMF.firmware}" + " " + (lib.concatMapStringsSep " " (disk: "-drive file=${disk.name}.raw,if=virtio,cache=unsafe,werror=report,format=raw") (lib.attrValues nixosConfig.config.disko.devices.disk));
 
-  runInLinuxVMNoKVM = drv: lib.overrideDerivation (vmTools.runInLinuxVM drv) (_: {requiredSystemFeatures = [];});
+  runInLinuxVMNoKVM = drv: lib.overrideDerivation (pkgs.vmTools.runInLinuxVM drv) (_: {requiredSystemFeatures = [];});
 in {
-  pure = runInLinuxVMNoKVM (pkgs.runCommand name
+  pure = hostPkgs.vmTools.runInLinuxVM (pkgs.runCommand name
     {
       buildInputs = dependencies;
       inherit preVM postVM QEMU_OPTS;
@@ -132,66 +132,66 @@ in {
       pkgs = pkgs;
     }
     name ''
-            set -efu
-            export PATH=${hostPkgs.lib.makeBinPath hostDependencies}
-            showUsage() {
-            cat <<\USAGE
-            Usage: $script [options]
+      set -efu
+      export PATH=${hostPkgs.lib.makeBinPath hostDependencies}
+      showUsage() {
+      cat <<\USAGE
+      Usage: $script [options]
 
-            Options:
-            * --pre-format-files <src> <dst>
-              copies the src to the dst on the VM, before disko is run
-              This is useful to provide secrets like LUKS keys, or other files you need for formating
-            * --post-format-files <src> <dst>
-              copies the src to the dst on the finished image
-              These end up in the images later and is useful if you want to add some extra stateful files
-              They will have the same permissions but will be owned by root:root
-            * --build-memory <amt>
-              specify the ammount of memory that gets allocated to the build vm (in mb)
-              This can be usefull if you want to build images with a more involed NixOS config
-              By default the vm will get 1024M/1GB
-            USAGE
-            }
+      Options:
+      * --pre-format-files <src> <dst>
+        copies the src to the dst on the VM, before disko is run
+        This is useful to provide secrets like LUKS keys, or other files you need for formating
+      * --post-format-files <src> <dst>
+        copies the src to the dst on the finished image
+        These end up in the images later and is useful if you want to add some extra stateful files
+        They will have the same permissions but will be owned by root:root
+      * --build-memory <amt>
+        specify the ammount of memory that gets allocated to the build vm (in mb)
+        This can be usefull if you want to build images with a more involed NixOS config
+        By default the vm will get 1024M/1GB
+      USAGE
+      }
 
-            export out=$PWD
-            TMPDIR=$(mktemp -d); export TMPDIR
-            trap 'rm -rf "$TMPDIR"' EXIT
-            cd "$TMPDIR"
+      export out=$PWD
+      TMPDIR=$(mktemp -d); export TMPDIR
+      trap 'rm -rf "$TMPDIR"' EXIT
+      cd "$TMPDIR"
 
-            mkdir copy_before_disko copy_after_disko
+      mkdir copy_before_disko copy_after_disko
 
-            while [[ $# -gt 0 ]]; do
-              case "$1" in
-              --pre-format-files)
-                src=$2
-                dst=$3
-                cp --reflink=auto -r "$src" copy_before_disko/"$(echo "$dst" | base64)"
-                shift 2
-                ;;
-              --post-format-files)
-                src=$2
-                dst=$3
-                cp --reflink=auto -r "$src" copy_after_disko/"$(echo "$dst" | base64)"
-                shift 2
-                ;;
-              --build-memory)
-                regex="^[0-9]+$"
-                if ! [[ $2 =~ $regex ]]; then
-                  echo "'$2' is not a number"
-                  exit 1
-                fi
-                build_memory=$2
-                shift 1
-                ;;
-              *)
-                showUsage
-                exit 1
-                ;;
-              esac
-              shift
-            done
+      while [[ $# -gt 0 ]]; do
+        case "$1" in
+        --pre-format-files)
+          src=$2
+          dst=$3
+          cp --reflink=auto -r "$src" copy_before_disko/"$(echo "$dst" | base64)"
+          shift 2
+          ;;
+        --post-format-files)
+          src=$2
+          dst=$3
+          cp --reflink=auto -r "$src" copy_after_disko/"$(echo "$dst" | base64)"
+          shift 2
+          ;;
+        --build-memory)
+          regex="^[0-9]+$"
+          if ! [[ $2 =~ $regex ]]; then
+            echo "'$2' is not a number"
+            exit 1
+          fi
+          build_memory=$2
+          shift 1
+          ;;
+        *)
+          showUsage
+          exit 1
+          ;;
+        esac
+        shift
+      done
 
-            export preVM=${diskoLib.writeCheckedBash {
+      export preVM=${diskoLib.writeCheckedBash {
           inherit checked;
           pkgs = hostPkgs;
         } "preVM.sh" ''
@@ -199,12 +199,12 @@ in {
           mv copy_before_disko copy_after_disko xchg/
           ${preVM}
         ''}
-            export postVM=${diskoLib.writeCheckedBash {
+      export postVM=${diskoLib.writeCheckedBash {
           inherit checked;
           pkgs = hostPkgs;
         } "postVM.sh"
         postVM}
-            export origBuilder=${hostPkgs.writeScript "disko-builder" ''
+      export origBuilder=${hostPkgs.writeScript "disko-builder" ''
         set -eu
         export PATH=${lib.makeBinPath dependencies}
         for src in /tmp/xchg/copy_before_disko/*; do
@@ -225,12 +225,11 @@ in {
         ${installer}
       ''}
 
-            build_memory=''${build_memory:-1024}
-            QEMU_OPTS=${lib.escapeShellArg QEMU_OPTS}
-            QEMU_OPTS+=" -m $build_memory"
-            export QEMU_OPTS
-      vmTools.runInLinuxVM
-            ${hostPkgs.bash}/bin/sh -e ${hostPkgs.vmTools.vmRunCommand hostPkgs.vmTools.qemuCommand}
-            cd /
+      build_memory=''${build_memory:-1024}
+      QEMU_OPTS=${lib.escapeShellArg QEMU_OPTS}
+      QEMU_OPTS+=" -m $build_memory"
+      export QEMU_OPTS
+      ${hostPkgs.bash}/bin/sh -e ${vmTools.vmRunCommand vmTools.qemuCommandLinux}
+      cd /
     '';
 }
