@@ -58,6 +58,14 @@ in {
       '';
       default = pkgs;
     };
+    format = lib.mkOption {
+      type = lib.types.str;
+      description = ''
+        qcow2-comrpessed, qcow2, raw, etc.
+      '';
+      default = "raw";
+    };
+
     rootMountPoint = lib.mkOption {
       type = lib.types.str;
       default = "/mnt";
