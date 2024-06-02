@@ -117,9 +117,12 @@
 
   QEMU_OPTS = "-drive if=pflash,format=raw,unit=0,readonly=on,file=${pkgs.OVMF.firmware}" + " " + (lib.concatMapStringsSep " " (disk: "-drive file=${disk.name}.raw,if=virtio,cache=unsafe,werror=report,format=raw") (lib.attrValues nixosConfig.config.disko.devices.disk));
 
-  runInLinuxVMNoKVM = drv: lib.overrideDerivation (pkgs.vmTools.runInLinuxVM drv) (_: {requiredSystemFeatures = [];});
+  runInLinuxVMNoKVM = drv:
+    lib.overrideDerivation (hostPkgs.vmTools.runInLinuxVM drv) (_: {
+      requiredSystemFeatures = [];
+    });
 in {
-  pure = hostPkgs.vmTools.runInLinuxVM (pkgs.runCommand name
+  pure = runInLinuxVMNoKVM (pkgs.runCommand name
     {
       buildInputs = dependencies;
       inherit preVM postVM QEMU_OPTS;
