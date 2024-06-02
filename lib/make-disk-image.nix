@@ -1,35 +1,41 @@
-{ nixosConfig
-, diskoLib
-, pkgs ? nixosConfig.pkgs
-, lib ? pkgs.lib
-, name ? "${nixosConfig.config.networking.hostName}-disko-images"
-, extraPostVM ? nixosConfig.config.disko.extraPostVM
-, checked ? false
-}:
-let
+{
+  nixosConfig,
+  diskoLib,
+  pkgs ? nixosConfig.pkgs,
+  lib ? pkgs.lib,
+  name ? "${nixosConfig.config.networking.hostName}-disko-images",
+  extraPostVM ? nixosConfig.config.disko.extraPostVM,
+  checked ? false,
+}: let
   vmTools = pkgs.vmTools.override {
-    rootModules = [ "9p" "9pnet_virtio" "virtio_pci" "virtio_blk" ] ++ nixosConfig.config.disko.extraRootModules;
-    kernel = pkgs.aggregateModules
-      (with nixosConfig.config.boot.kernelPackages; [ kernel ]
+    rootModules = ["9p" "9pnet_virtio" "virtio_pci" "virtio_blk"] ++ nixosConfig.config.disko.extraRootModules;
+    kernel =
+      pkgs.aggregateModules
+      (with nixosConfig.config.boot.kernelPackages;
+        [kernel]
         ++ lib.optional (lib.elem "zfs" nixosConfig.config.disko.extraRootModules) zfs);
   };
   cleanedConfig = diskoLib.testLib.prepareDiskoConfig nixosConfig.config diskoLib.testLib.devices;
   systemToInstall = nixosConfig.extendModules {
-    modules = [{
-      disko.devices = lib.mkForce cleanedConfig.disko.devices;
-      boot.loader.grub.devices = lib.mkForce cleanedConfig.boot.loader.grub.devices;
-    }];
+    modules = [
+      {
+        disko.devices = lib.mkForce cleanedConfig.disko.devices;
+        boot.loader.grub.devices = lib.mkForce cleanedConfig.boot.loader.grub.devices;
+      }
+    ];
   };
-  dependencies = with pkgs; [
-    bash
-    coreutils
-    gnused
-    parted # for partprobe
-    systemdMinimal
-    nix
-    util-linux
-    findutils
-  ] ++ nixosConfig.config.disko.extraDependencies;
+  dependencies = with pkgs;
+    [
+      bash
+      coreutils
+      gnused
+      parted # for partprobe
+      systemdMinimal
+      nix
+      util-linux
+      findutils
+    ]
+    ++ nixosConfig.config.disko.extraDependencies;
   preVM = ''
     ${lib.concatMapStringsSep "\n" (disk: "truncate -s ${disk.imageSize} ${disk.name}.raw") (lib.attrValues nixosConfig.config.disko.devices.disk)}
   '';
@@ -41,7 +47,7 @@ let
   '';
 
   closureInfo = pkgs.closureInfo {
-    rootPaths = [ systemToInstall.config.system.build.toplevel ];
+    rootPaths = [systemToInstall.config.system.build.toplevel];
   };
   partitioner = ''
     # running udev, stolen from stage-1.sh
@@ -62,21 +68,26 @@ let
   '';
 
   installer = ''
+    export HOME=${systemToInstall.config.disko.rootMountPoint}
+
     # populate nix db, so nixos-install doesn't complain
-    export NIX_STATE_DIR=${systemToInstall.config.disko.rootMountPoint}/nix/var/nix
+    # Provide a Nix database so that nixos-install can copy closures.
+    export NIX_STATE_DIR=${systemToInstall.config.disko.rootMountPoint}/state
     nix-store --load-db < "${closureInfo}/registration"
 
     # We copy files with cp because `nix copy` seems to have a large memory leak
-    mkdir -p ${systemToInstall.config.disko.rootMountPoint}/nix/store
-    xargs cp --recursive --target ${systemToInstall.config.disko.rootMountPoint}/nix/store < ${closureInfo}/store-paths
+    #mkdir -p ${systemToInstall.config.disko.rootMountPoint}/nix/store
+    #xargs cp --recursive --target ${systemToInstall.config.disko.rootMountPoint}/nix/store < ${closureInfo}/store-paths
+    #NIXOS_INSTALL_BOOTLOADER=1 nixos-enter --root ${systemToInstall.config.disko.rootMountPoint} -- /nix/var/nix/profiles/system/bin/switch-to-configuration boot
 
-    ${systemToInstall.config.system.build.nixos-install}/bin/nixos-install --root ${systemToInstall.config.disko.rootMountPoint} --system ${systemToInstall.config.system.build.toplevel} --keep-going --no-channel-copy -v --no-root-password --option binary-caches ""
+    ${systemToInstall.config.system.build.nixos-install}/bin/nixos-install --root ${systemToInstall.config.disko.rootMountPoint} --system ${systemToInstall.config.system.build.toplevel}  --no-channel-copy -v --no-root-password
     umount -Rv ${systemToInstall.config.disko.rootMountPoint}
+
+    rm -f $mountPoint/etc/machine-id || true
   '';
 
   QEMU_OPTS = "-drive if=pflash,format=raw,unit=0,readonly=on,file=${pkgs.OVMF.firmware}" + " " + (lib.concatMapStringsSep " " (disk: "-drive file=${disk.name}.raw,if=virtio,cache=unsafe,werror=report,format=raw") (lib.attrValues nixosConfig.config.disko.devices.disk));
-in
-{
+in {
   pure = vmTools.runInLinuxVM (pkgs.runCommand name
     {
       buildInputs = dependencies;
@@ -84,7 +95,7 @@ in
       memSize = nixosConfig.config.disko.memSize;
     }
     (partitioner + installer));
-  impure = diskoLib.writeCheckedBash { inherit checked pkgs; } name ''
+  impure = diskoLib.writeCheckedBash {inherit checked pkgs;} name ''
     set -efu
     export PATH=${lib.makeBinPath dependencies}
     showUsage() {
@@ -144,12 +155,12 @@ in
       shift
     done
 
-    export preVM=${diskoLib.writeCheckedBash { inherit pkgs checked; } "preVM.sh" ''
+    export preVM=${diskoLib.writeCheckedBash {inherit pkgs checked;} "preVM.sh" ''
       set -efu
       mv copy_before_disko copy_after_disko xchg/
       ${preVM}
     ''}
-    export postVM=${diskoLib.writeCheckedBash { inherit pkgs checked; } "postVM.sh" postVM}
+    export postVM=${diskoLib.writeCheckedBash {inherit pkgs checked;} "postVM.sh" postVM}
     export origBuilder=${pkgs.writeScript "disko-builder" ''
       set -eu
       export PATH=${lib.makeBinPath dependencies}
