@@ -102,17 +102,22 @@
   '';
 
   installer = ''
+    export HOME=${systemToInstall.config.disko.rootMountPoint}
+
     # populate nix db, so nixos-install doesn't complain
-    export NIX_STATE_DIR=${systemToInstall.config.disko.rootMountPoint}/nix/var/nix
+    # Provide a Nix database so that nixos-install can copy closures.
+    export NIX_STATE_DIR=${systemToInstall.config.disko.rootMountPoint}/state
     nix-store --load-db < "${closureInfo}/registration"
 
     # We copy files with cp because `nix copy` seems to have a large memory leak
     #mkdir -p ${systemToInstall.config.disko.rootMountPoint}/nix/store
     #xargs cp --recursive --target ${systemToInstall.config.disko.rootMountPoint}/nix/store < ${closureInfo}/store-paths
-    #${pkgs.rsync}/bin/rsync -avhW --no-compress ${closureInfo}/store-paths/ ${systemToInstall.config.disko.rootMountPoint}/nix/store
+    #NIXOS_INSTALL_BOOTLOADER=1 nixos-enter --root ${systemToInstall.config.disko.rootMountPoint} -- /nix/var/nix/profiles/system/bin/switch-to-configuration boot
 
-    ${systemToInstall.config.system.build.nixos-install}/bin/nixos-install --root ${systemToInstall.config.disko.rootMountPoint} --system ${systemToInstall.config.system.build.toplevel} --keep-going --no-channel-copy -v --no-root-password --option binary-caches ""
+    ${systemToInstall.config.system.build.nixos-install}/bin/nixos-install --root ${systemToInstall.config.disko.rootMountPoint} --system ${systemToInstall.config.system.build.toplevel}  --no-channel-copy -v --no-root-password
     umount -Rv ${systemToInstall.config.disko.rootMountPoint}
+
+    rm -f $mountPoint/etc/machine-id || true
   '';
 
   QEMU_OPTS = "-drive if=pflash,format=raw,unit=0,readonly=on,file=${pkgs.OVMF.firmware}" + " " + (lib.concatMapStringsSep " " (disk: "-drive file=${disk.name}.raw,if=virtio,cache=unsafe,werror=report,format=raw") (lib.attrValues nixosConfig.config.disko.devices.disk));
