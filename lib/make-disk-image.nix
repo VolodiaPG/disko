@@ -8,7 +8,7 @@
   extraPostVM ? nixosConfig.config.disko.extraPostVM,
   checked ? false,
 }: let
-  vmTools = hostPkgs.vmTools.override {
+  vmTools = pkgs.vmTools.override {
     rootModules = ["9p" "9pnet_virtio" "virtio_pci" "virtio_blk"] ++ nixosConfig.config.disko.extraRootModules;
     kernel =
       pkgs.aggregateModules
@@ -107,9 +107,9 @@
     nix-store --load-db < "${closureInfo}/registration"
 
     # We copy files with cp because `nix copy` seems to have a large memory leak
-    mkdir -p ${systemToInstall.config.disko.rootMountPoint}/nix/store
+    #mkdir -p ${systemToInstall.config.disko.rootMountPoint}/nix/store
     #xargs cp --recursive --target ${systemToInstall.config.disko.rootMountPoint}/nix/store < ${closureInfo}/store-paths
-    ${pkgs.rsync}/bin/rsync -avhW --no-compress ${closureInfo}/store-paths/ ${systemToInstall.config.disko.rootMountPoint}/nix/store
+    #${pkgs.rsync}/bin/rsync -avhW --no-compress ${closureInfo}/store-paths/ ${systemToInstall.config.disko.rootMountPoint}/nix/store
 
     ${systemToInstall.config.system.build.nixos-install}/bin/nixos-install --root ${systemToInstall.config.disko.rootMountPoint} --system ${systemToInstall.config.system.build.toplevel} --keep-going --no-channel-copy -v --no-root-password --option binary-caches ""
     umount -Rv ${systemToInstall.config.disko.rootMountPoint}
@@ -118,9 +118,15 @@
   QEMU_OPTS = "-drive if=pflash,format=raw,unit=0,readonly=on,file=${pkgs.OVMF.firmware}" + " " + (lib.concatMapStringsSep " " (disk: "-drive file=${disk.name}.raw,if=virtio,cache=unsafe,werror=report,format=raw") (lib.attrValues nixosConfig.config.disko.devices.disk));
 
   runInLinuxVMNoKVM = drv:
-    lib.overrideDerivation (hostPkgs.vmTools.runInLinuxVM drv) (_: {
-      requiredSystemFeatures = [];
+    lib.overrideDerivation (vmTools.runInLinuxVM drv) (old: {
+      requiredSystemFeatures = lib.remove "kvm" old.requiredSystemFeatures;
+      args = ["-e" (hostPkgs.vmTools.vmRunCommand modifiedQemuCommandLinux)];
     });
+
+  qemu-common = vmTools.qemu-common;
+  qemu = hostPkgs.qemu_kvm;
+  modifiedQemu = "${qemu-common.qemuBinary qemu} \\";
+  modifiedQemuCommandLinux = builtins.replaceStrings [(builtins.head (builtins.elemAt (builtins.split "^(.+)\n  -nographic" vmTools.qemuCommandLinux) 1))] [modifiedQemu] vmTools.qemuCommandLinux;
 in {
   pure = runInLinuxVMNoKVM (pkgs.runCommand name
     {
@@ -232,7 +238,7 @@ in {
       QEMU_OPTS=${lib.escapeShellArg QEMU_OPTS}
       QEMU_OPTS+=" -m $build_memory"
       export QEMU_OPTS
-      ${hostPkgs.bash}/bin/sh -e ${vmTools.vmRunCommand vmTools.qemuCommandLinux}
+      ${hostPkgs.bash}/bin/sh -e ${hostPkgs.vmTools.vmRunCommand modifiedQemuCommandLinux}
       cd /
     '';
 }
