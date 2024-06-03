@@ -107,7 +107,7 @@
     # populate nix db, so nixos-install doesn't complain
     # Provide a Nix database so that nixos-install can copy closures.
     export NIX_STATE_DIR=${systemToInstall.config.disko.rootMountPoint}/state
-    nix-store --load-db < "${closureInfo}/registration"
+    #nix-store --load-db < "${closureInfo}/registration"
 
     # We copy files with cp because `nix copy` seems to have a large memory leak
     #mkdir -p ${systemToInstall.config.disko.rootMountPoint}/nix/store
